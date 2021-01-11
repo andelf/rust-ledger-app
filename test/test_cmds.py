@@ -16,16 +16,16 @@ CMDS = [
     "80FF",
 ]
 
-d = getDongleTCP(port=9999)     # Speculos
-# d = getDongle()               # Nano
+# d = getDongleTCP(port=9999)     # Speculos
+d = getDongle()               # Nano
 
 from time import sleep
 for cmd in map(unhexlify,CMDS):
-    r = None 
+    r = None
     try:
         r = d.exchange(cmd, 20)
         sleep(1)
     except Exception as e:
         print(e)
-    if r is not None: 
+    if r is not None:
         print("Response : ", hexlify(r))

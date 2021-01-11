@@ -5,15 +5,16 @@ authors = ["yhql"]
 edition = "2018"
 
 [dependencies]
-nanos_sdk = { git = "https://github.com/LedgerHQ/ledger-nanos-sdk.git" } 
-nanos_ui = { git = "https://github.com/LedgerHQ/ledger-nanos-ui.git" } 
+nanos_sdk = { git = "https://github.com/LedgerHQ/ledger-nanos-sdk.git" }
+nanos_ui = { git = "https://github.com/LedgerHQ/ledger-nanos-ui.git" }
+bs58 = { verson = "0.4", default-features = false }
 
 [profile.dev]
 panic = "abort"
 
 [profile.release]
 panic = "abort"
-opt-level = 'z' 
+opt-level = 'z'
 lto = true
 
 [package.metadata.nanos]

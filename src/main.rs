@@ -4,14 +4,19 @@
 mod crypto_helpers;
 mod utils;
 
-use nanos_sdk::buttons::ButtonEvent;
-use nanos_sdk::io;
-use nanos_sdk::ecc::{CurvesId, DEREncodedECDSASignature};
-use nanos_ui::ui;
 use core::str::from_utf8;
 use crypto_helpers::*;
+use nanos_sdk::buttons::ButtonEvent;
+use nanos_sdk::ecc::{self, CurvesId, DEREncodedECDSASignature};
+use nanos_sdk::io;
+use nanos_ui::bagls::Displayable;
+use nanos_ui::ui;
+
+mod cx;
 
 nanos_sdk::set_panic!(nanos_sdk::exiting_panic);
+
+pub const BIP32_PATH: [u32; 5] = nanos_sdk::ecc::make_bip32_path(b"m/44'/195'/0'/0/0");
 
 /// Display public key in two separate
 /// message scrollers
@@ -39,14 +44,14 @@ fn menu_example() {
                 match ui::Menu::new(&[&"Copyright", &"Authors", &"Back"]).show() {
                     0 => ui::popup("2020 Ledger"),
                     1 => ui::popup("???"),
-                    _ => break 
+                    _ => break,
                 }
-            }
+            },
             2 => return,
             3 => nanos_sdk::exit_app(0),
-            _ => () 
+            _ => (),
         }
-    } 
+    }
 }
 
 /// This is the UI flow for signing, composed of a scroller
@@ -70,7 +75,7 @@ fn sign_ui(message: &[u8]) -> Result<Option<DEREncodedECDSASignature>, ()> {
         let pubkey = nanos_sdk::ecc::ec_get_pubkey(CurvesId::Secp256k1, &mut k);
         if !detecdsa_verify(&message, &sig[..sig_len as usize], &pubkey) {
             ui::popup("Invalid :(");
-            return Err(())
+            return Err(());
         }
 
         ui::popup("Done !");
@@ -81,25 +86,111 @@ fn sign_ui(message: &[u8]) -> Result<Option<DEREncodedECDSASignature>, ()> {
     }
 }
 
+/*
+pub fn bip32_derive_secp256k1(path: &[u32]) -> [u8; 32] {
+    let mut raw_key = [0u8; 32];
+    nanos_sdk::ecc::bip32_derive(ecc:CurvesId::Secp256k1, path, &mut raw_key);
+    raw_key
+}
+*/
+
+// T-address
+pub fn address_for_bip32(path: &[u32]) -> [u8; 34] {
+    let mut rawkey = [0u8; 32];
+    nanos_sdk::ecc::bip32_derive(ecc::CurvesId::Secp256k1, path, &mut rawkey);
+    let mut privkey = nanos_sdk::ecc::ec_init_key(CurvesId::Secp256k1, &rawkey);
+    let pubkey = nanos_sdk::ecc::ec_get_pubkey(CurvesId::Secp256k1, &mut privkey);
+
+    cx::hash_keccak256(&pubkey.W[1..65], &mut rawkey[..]);
+    let mut raw_addr = [0u8; 21 + 4];
+    raw_addr[0] = 0x41;
+    raw_addr[1..21].copy_from_slice(&rawkey[rawkey.len() - 20..]);
+
+    let mut addr = [0u8; 34];
+
+    // base58check
+    cx::hash_sha256(&raw_addr[..21], &mut rawkey[..]);
+    cx::hash_sha256(&rawkey[..], &mut addr[..]);
+    raw_addr[21..].copy_from_slice(&addr[..4]);
+    bs58::encode(raw_addr).into(&mut addr[..]).unwrap();
+
+    addr
+}
+
 #[no_mangle]
 extern "C" fn sample_main() {
     let mut comm = io::Comm::new();
 
-    loop {
-        // Draw some 'welcome' screen
-        ui::SingleMessage::new("W e l c o m e").show();
+    // Draw some 'welcome' screen
+    ui::SingleMessage::new("W e l c o m e").show();
 
+    // nanos_ui::bagls::
+    loop {
         // Wait for either a specific button push to exit the app
         // or an APDU command
         match comm.next_event() {
-            io::Event::Button(ButtonEvent::RightButtonRelease) => nanos_sdk::exit_app(0),
-            io::Event::Command(ins) => {
-                match handle_apdu(&mut comm, ins) {
-                    Ok(()) => comm.reply_ok(),
-                    Err(sw) => comm.reply(sw)
+            io::Event::Button(ButtonEvent::RightButtonRelease) => {
+                // nanos_sdk::exit_app(0);
+                match ui::Menu::new(&[&"Address", &"Infos", &"Back", &"Exit App"]).show() {
+                    0 => {
+                        // ui::SingleMessage::new("Pubkey").show();
+                        let addr = address_for_bip32(&BIP32_PATH);
+                        let m = from_utf8(&addr).unwrap();
+                        ui::MessageScroller::new(&m).event_loop();
+                    }
+                    1 => {
+                        // ui::SingleMessage::new("Fuck").show();
+
+                        nanos_ui::bagls::LabelLine::new()
+                            .dims(128, 11)
+                            .pos(0, 26)
+                            .text("Hello from Rust!")
+                            .display();
+                        nanos_ui::bagls::Icon::new(nanos_ui::bagls::Icons::TransactionBadge)
+                            .pos(60, 4)
+                            .paint();
+                    }
+                    2 => {
+                        nanos_ui::bagls::LabelLine::new()
+                            .dims(128, 11)
+                            .pos(0, 30)
+                            .text("OK OK 1!")
+                            .display();
+                        nanos_ui::bagls::Icon::new(nanos_ui::bagls::Icons::TransactionBadge)
+                            .pos(60, 4)
+                            .paint();
+                        nanos_ui::bagls::LEFT_ARROW.paint();
+                        nanos_ui::bagls::LEFT_S_ARROW.paint();
+                        /*
+                        nanos_ui::bagls::LabelLine::new()
+                            .dims(128, 11)
+                            .pos(0, 18)
+                            .text("OK OK 2!")
+                            .bold()
+                            .display();
+                        nanos_ui::bagls::LabelLine::new()
+                            .dims(128, 11)
+                            .pos(0, -1)
+                            .text("OK OK 3!")
+                            .display();
+                            */
+                    }
+                    _ => {
+                        nanos_sdk::exit_app(0);
+                    }
                 }
             }
-            _ => ()
+            io::Event::Button(ButtonEvent::LeftButtonRelease) => {
+                ui::SingleMessage::new("Left pressed").show();
+            }
+            io::Event::Button(ButtonEvent::BothButtonsPress) => {
+                nanos_sdk::exit_app(0);
+            }
+            io::Event::Command(ins) => match handle_apdu(&mut comm, ins) {
+                Ok(()) => comm.reply_ok(),
+                Err(sw) => comm.reply(sw),
+            },
+            _ => (),
         }
     }
 }
@@ -125,23 +216,23 @@ impl From<u8> for Ins {
             0x20 => Ins::DoubleMessage,
             0xfe => Ins::ShowPrivateKey,
             0xff => Ins::Exit,
-            _ => panic!()
+            _ => panic!(),
         }
     }
 }
 
-
 fn handle_apdu(comm: &mut io::Comm, ins: Ins) -> Result<(), io::StatusWords> {
     if comm.rx == 0 {
-        return Err(io::StatusWords::NothingReceived)
+        return Err(io::StatusWords::NothingReceived);
     }
 
     match ins {
-        Ins::GetPubkey => comm.append(&get_pubkey().W), 
+        Ins::GetPubkey => comm.append(&get_pubkey().W),
         Ins::Sign => {
-            let out = sign_ui(comm.get_data()?)
-                            .map_err(|_| io::StatusWords::UserCancelled)?;
-            if let Some(o) = out { comm.append(&o) }
+            let out = sign_ui(comm.get_data()?).map_err(|_| io::StatusWords::UserCancelled)?;
+            if let Some(o) = out {
+                comm.append(&o)
+            }
         }
         Ins::Menu => menu_example(),
         Ins::ShowPrivateKey => comm.append(&bip32_derive_secp256k1(&BIP32_PATH)),
